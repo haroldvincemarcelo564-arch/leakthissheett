@@ -1,6 +1,3 @@
-TOTAL ENVIRONMENT DUPLICATION – INSTANCES + LUA STATE + MEMORY
-OUTPUTS TO EXECUTOR WORKSPACE FOLDER WITH MULTIPLE FILE FORMATS
-
 local httpService = game:GetService("HttpService")
 local timestamp = os.time()
 local workspacePath = ""
