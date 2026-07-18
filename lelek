@@ -2,7 +2,7 @@
     Complete Roblox exploit script for SYUDAD RP / Filipino city roleplay games.
     Uses Fluent Pro UI with "Blood" theme.
     Tabs: Main, Syudad, Copy, Commands, Combat, Utility, Auto Linis.
-    Features: Aimbot (head lock), Tracers (Adonis-style "track all"), Big Head, etc.
+    Features: Aimbot (head lock) with FOV slider, Team Check, Tracers, etc.
 --]]
 
 local Fluent = loadstring(game:HttpGet("https://github.com/StyearX/Fluent-Modded/releases/download/Fluent/FluentPro"))()
@@ -27,6 +27,19 @@ local Camera = workspace.CurrentCamera
 local TracerObjects = {}
 local AimbotActive = false
 local TracersActive = false
+local AimbotFOV = 90  -- Default FOV in degrees
+
+-- ========== TEAM CHECK FUNCTION ==========
+local function IsEnemy(player)
+    if player == LocalPlayer then return false end
+    local localTeam = LocalPlayer.Team
+    local targetTeam = player.Team
+    if localTeam and targetTeam then
+        return localTeam ~= targetTeam
+    end
+    -- If no teams, treat all as enemy (for PvP)
+    return true
+end
 
 -- ========== MAIN TAB ==========
 local MainTab = Window:AddTab({ Title = "Main", Icon = "home" })
@@ -325,10 +338,27 @@ CommandsTab:AddButton({
 -- ========== COMBAT TAB ==========
 local CombatTab = Window:AddTab({ Title = "Combat", Icon = "crosshair" })
 
--- AIMBOT - LOCKS TO HEAD
+-- FOV SLIDER
+local FOVSlider = CombatTab:AddSlider({
+    Title = "Aimbot FOV (degrees)",
+    Description = "Field of view for aimbot detection (10-180)",
+    Values = { Min = 10, Max = 180, Default = 90, Rounding = 1 },
+    Callback = function(v)
+        AimbotFOV = v
+    end
+})
+
+-- TEAM CHECK TOGGLE
+local TeamCheckToggle = CombatTab:AddToggle({
+    Title = "Team Check (Enemy Only)",
+    Description = "Only target enemies (different team)",
+    Default = true
+})
+
+-- AIMBOT - LOCKS TO HEAD with FOV
 local AimbotToggle = CombatTab:AddToggle({
     Title = "Aimbot (Head Lock)",
-    Description = "Locks camera to nearest player's head",
+    Description = "Locks camera to nearest enemy head within FOV",
     Default = false,
     Callback = function(state)
         AimbotActive = state
@@ -337,36 +367,51 @@ local AimbotToggle = CombatTab:AddToggle({
                 if not AimbotActive then return end
                 local char = LocalPlayer.Character
                 if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-                local nearest, dist = nil, math.huge
+                local hrp = char.HumanoidRootPart
+                local cameraPos = Camera.CFrame.Position
+                local cameraLook = Camera.CFrame.LookVector
+                
+                local nearest, bestScore = nil, math.huge
                 for _, v in pairs(Players:GetPlayers()) do
-                    if v ~= LocalPlayer and v.Character then
-                        local head = v.Character:FindFirstChild("Head")
-                        if head then
-                            local d = (head.Position - Camera.CFrame.Position).Magnitude
-                            if d < dist then
-                                dist = d
-                                nearest = head
-                            end
-                        end
+                    if v == LocalPlayer then continue end
+                    -- Team check
+                    if TeamCheckToggle.Value and not IsEnemy(v) then continue end
+                    if not v.Character then continue end
+                    local head = v.Character:FindFirstChild("Head")
+                    if not head then continue end
+                    
+                    -- Calculate angle from camera to head
+                    local dirToHead = (head.Position - cameraPos).Unit
+                    local angle = math.deg(math.acos(math.clamp(cameraLook:Dot(dirToHead), -1, 1)))
+                    
+                    -- Check if within FOV
+                    if angle > AimbotFOV then continue end
+                    
+                    -- Use distance as tie-breaker (closest within FOV)
+                    local dist = (head.Position - cameraPos).Magnitude
+                    if dist < bestScore then
+                        bestScore = dist
+                        nearest = head
                     end
                 end
                 if nearest then
-                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, nearest.Position)
+                    Camera.CFrame = CFrame.new(cameraPos, nearest.Position)
                 end
             end)
         end
     end
 })
 
--- TRACERS - ADONIS "TRACK ALL" STYLE
-local function createTracer(targetPart)
+-- TRACERS - ADONIS "TRACK ALL" STYLE (with team check option)
+local function createTracer(targetPart, color)
+    color = color or Color3.fromRGB(255, 0, 0)
     local tracer = Instance.new("Part")
     tracer.Name = "Tracer"
     tracer.Size = Vector3.new(0.1, 0.1, 0.1)
     tracer.Anchored = true
     tracer.CanCollide = false
     tracer.Material = Enum.Material.Neon
-    tracer.BrickColor = BrickColor.new("Bright red")
+    tracer.Color = color
     tracer.Transparency = 0.3
     tracer.Parent = workspace
 
@@ -376,7 +421,7 @@ local function createTracer(targetPart)
     local trail = Instance.new("Trail")
     trail.Parent = tracer
     trail.Attachment0 = attachment
-    trail.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
+    trail.Color = ColorSequence.new(color)
     trail.Lifetime = 0.5
     trail.MinLength = 0.5
     trail.MaxLength = 10
@@ -386,7 +431,6 @@ local function createTracer(targetPart)
     })
     trail.WidthScale = NumberSequence.new(1)
 
-    -- Update tracer position every frame to follow target
     local connection
     connection = RunService.RenderStepped:Connect(function()
         if not TracersActive or not targetPart or not targetPart.Parent then
@@ -402,7 +446,7 @@ end
 
 local TracersToggle = CombatTab:AddToggle({
     Title = "Tracers (Track All)",
-    Description = "Adonis-style tracers on all players",
+    Description = "Adonis-style tracers on players (red=enemy, blue=team)",
     Default = false,
     Callback = function(state)
         TracersActive = state
@@ -418,7 +462,9 @@ local TracersToggle = CombatTab:AddToggle({
                 if v ~= LocalPlayer and v.Character then
                     local head = v.Character:FindFirstChild("Head")
                     if head then
-                        local tracer = createTracer(head)
+                        local isEnemy = IsEnemy(v)
+                        local color = isEnemy and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 0, 255)
+                        local tracer = createTracer(head, color)
                         table.insert(TracerObjects, tracer)
                     end
                 end
@@ -433,7 +479,9 @@ local TracersToggle = CombatTab:AddToggle({
                         if TracersActive and newPlayer ~= LocalPlayer then
                             local head = char:FindFirstChild("Head")
                             if head then
-                                local tracer = createTracer(head)
+                                local isEnemy = IsEnemy(newPlayer)
+                                local color = isEnemy and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 0, 255)
+                                local tracer = createTracer(head, color)
                                 table.insert(TracerObjects, tracer)
                             end
                         end
@@ -441,7 +489,6 @@ local TracersToggle = CombatTab:AddToggle({
                 end
             end)
 
-            -- Cleanup when toggled off
             TracersToggle._cleanup = function()
                 playerAddedConn:Disconnect()
             end
@@ -458,9 +505,10 @@ local TracersToggle = CombatTab:AddToggle({
     end
 })
 
--- ESP (kept from before)
+-- ESP with team colors
 local ESPToggle = CombatTab:AddToggle({
     Title = "ESP (Boxes + Names)",
+    Description = "Red=enemy, Blue=team",
     Default = false,
     Callback = function(state)
         local espObjects = {}
@@ -474,27 +522,29 @@ local ESPToggle = CombatTab:AddToggle({
                 for _, obj in pairs(espObjects) do obj:Remove() end
                 espObjects = {}
                 for _, v in pairs(Players:GetPlayers()) do
-                    if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
-                        local hrp = v.Character.HumanoidRootPart
-                        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-                        if onScreen then
-                            local box = Instance.new("Frame")
-                            box.Size = UDim2.new(0, 60, 0, 120)
-                            box.Position = UDim2.new(0, pos.X - 30, 0, pos.Y - 60)
-                            box.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-                            box.BackgroundTransparency = 0.5
-                            box.BorderSizePixel = 0
-                            box.Parent = game:GetService("CoreGui")
-                            local nameLabel = Instance.new("TextLabel")
-                            nameLabel.Size = UDim2.new(1, 0, 0, 20)
-                            nameLabel.Position = UDim2.new(0, 0, 1, 0)
-                            nameLabel.Text = v.Name
-                            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-                            nameLabel.BackgroundTransparency = 1
-                            nameLabel.TextScaled = true
-                            nameLabel.Parent = box
-                            table.insert(espObjects, box)
-                        end
+                    if v == LocalPlayer then continue end
+                    if not v.Character or not v.Character:FindFirstChild("HumanoidRootPart") then continue end
+                    local isEnemy = IsEnemy(v)
+                    local color = isEnemy and Color3.fromRGB(255, 0, 0) or Color3.fromRGB(0, 0, 255)
+                    local hrp = v.Character.HumanoidRootPart
+                    local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                    if onScreen then
+                        local box = Instance.new("Frame")
+                        box.Size = UDim2.new(0, 60, 0, 120)
+                        box.Position = UDim2.new(0, pos.X - 30, 0, pos.Y - 60)
+                        box.BackgroundColor3 = color
+                        box.BackgroundTransparency = 0.5
+                        box.BorderSizePixel = 0
+                        box.Parent = game:GetService("CoreGui")
+                        local nameLabel = Instance.new("TextLabel")
+                        nameLabel.Size = UDim2.new(1, 0, 0, 20)
+                        nameLabel.Position = UDim2.new(0, 0, 1, 0)
+                        nameLabel.Text = v.Name .. (isEnemy and " [ENEMY]" or " [TEAM]")
+                        nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                        nameLabel.BackgroundTransparency = 1
+                        nameLabel.TextScaled = true
+                        nameLabel.Parent = box
+                        table.insert(espObjects, box)
                     end
                 end
             end)
@@ -662,6 +712,6 @@ UtilTab:AddButton({
 -- ========== NOTIFY ==========
 Fluent:Notify({
     Title = "4GODS ON TOP",
-    Content = "BOMBA NA GARRR",
+    Content = "ANO JAY PAPALAG BA KAYO SA 4 GoDS?",
     Duration = 5
 })
