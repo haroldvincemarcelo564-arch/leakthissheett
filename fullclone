@@ -1,0 +1,451 @@
+TOTAL ENVIRONMENT DUPLICATION – INSTANCES + LUA STATE + MEMORY
+OUTPUTS TO EXECUTOR WORKSPACE FOLDER WITH MULTIPLE FILE FORMATS
+
+local httpService = game:GetService("HttpService")
+local timestamp = os.time()
+local workspacePath = ""
+
+pcall(function()
+    if syn and syn.get_executor_info then
+        workspacePath = syn.get_executor_info().workspacePath or ""
+    elseif krnl and krnl.get_executor_info then
+        workspacePath = krnl.get_executor_info().workspacePath or ""
+    elseif script_ware and script_ware.get_executor_info then
+        workspacePath = script_ware.get_executor_info().workspacePath or ""
+    else
+        workspacePath = "./workspace/"
+    end
+    if workspacePath ~= "" and not workspacePath:match("[\\/]$") then
+        workspacePath = workspacePath .. "/"
+    end
+end)
+
+pcall(function()
+    if makefolder then
+        if not isfolder(workspacePath) then makefolder(workspacePath) end
+        if not isfolder(workspacePath .. "scripts/") then makefolder(workspacePath .. "scripts/") end
+        if not isfolder(workspacePath .. "bytecode/") then makefolder(workspacePath .. "bytecode/") end
+        if not isfolder(workspacePath .. "globals/") then makefolder(workspacePath .. "globals/") end
+        if not isfolder(workspacePath .. "connections/") then makefolder(workspacePath .. "connections/") end
+        if not isfolder(workspacePath .. "metatables/") then makefolder(workspacePath .. "metatables/") end
+        if not isfolder(workspacePath .. "upvalues/") then makefolder(workspacePath .. "upvalues/") end
+        if not isfolder(workspacePath .. "heap/") then makefolder(workspacePath .. "heap/") end
+        if not isfolder(workspacePath .. "datastores/") then makefolder(workspacePath .. "datastores/") end
+        if not isfolder(workspacePath .. "animations/") then makefolder(workspacePath .. "animations/") end
+    end
+end)
+
+local globalDump = {}
+pcall(function()
+    local function serializeTable(t, depth, maxDepth, seen)
+        depth = depth or 0
+        maxDepth = maxDepth or 10
+        seen = seen or {}
+        if depth > maxDepth then return "[[MAX_DEPTH]]" end
+        if type(t) ~= "table" then return t end
+        if seen[t] then return "[[CYCLE]]" end
+        seen[t] = true
+        local result = {}
+        for k, v in pairs(t) do
+            local kStr = type(k) == "table" and "[[table]]" or tostring(k)
+            local vStr = type(v) == "table" and serializeTable(v, depth+1, maxDepth, seen) or v
+            result[kStr] = vStr
+        end
+        return result
+    end
+    
+    globalDump._G = serializeTable(_G, 0, 15)
+    
+    if shared then
+        globalDump.shared = serializeTable(shared, 0, 15)
+    end
+    
+    if debug and debug.getregistry then
+        pcall(function()
+            local reg = debug.getregistry()
+            globalDump.registry = serializeTable(reg, 0, 15)
+        end)
+    end
+    
+    if package and package.loaded then
+        globalDump.loadedModules = {}
+        for name, mod in pairs(package.loaded) do
+            globalDump.loadedModules[name] = type(mod) == "table" and "[[table]]" or tostring(mod)
+        end
+    end
+end)
+
+pcall(function()
+    local jsonGlobals = httpService:JSONEncode(globalDump)
+    writefile(workspacePath .. "globals/globals_" .. timestamp .. ".json", jsonGlobals)
+end)
+
+local upvalueDump = {}
+local metatableDump = {}
+
+pcall(function()
+    local function scanFunction(func, path)
+        if type(func) ~= "function" then return end
+        if debug and debug.getupvalues then
+            local i = 1
+            while true do
+                local name, value = debug.getupvalue(func, i)
+                if not name then break end
+                upvalueDump[path .. "." .. name] = {
+                    Name = name,
+                    ValueType = type(value),
+                    Value = type(value) == "table" and "[[table]]" or tostring(value)
+                }
+                i = i + 1
+            end
+        end
+    end
+    
+    local function scanTable(t, path, depth)
+        depth = depth or 0
+        if depth > 5 then return end
+        for k, v in pairs(t) do
+            if type(v) == "function" then
+                scanFunction(v, path .. "." .. tostring(k))
+            elseif type(v) == "table" then
+                if debug and debug.getmetatable then
+                    local mt = debug.getmetatable(v)
+                    if mt then
+                        metatableDump[path .. "." .. tostring(k)] = {
+                            Metatable = type(mt) == "table" and "[[table]]" or tostring(mt)
+                        }
+                    end
+                end
+                scanTable(v, path .. "." .. tostring(k), depth+1)
+            end
+        end
+    end
+    
+    scanTable(_G, "_G", 0)
+end)
+
+pcall(function()
+    writefile(workspacePath .. "upvalues/upvalues_" .. timestamp .. ".json", httpService:JSONEncode(upvalueDump))
+    writefile(workspacePath .. "metatables/metatables_" .. timestamp .. ".json", httpService:JSONEncode(metatableDump))
+end)
+
+local connectionDump = {}
+
+pcall(function()
+    local function scanConnections(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            local className = child.ClassName
+            if className:match("Event") or className:match("Remote") or className:match("Bindable") then
+                if getconnections then
+                    local eventNames = {"OnServerEvent", "OnClientEvent", "Event", "OnInvoke"}
+                    for _, evtName in ipairs(eventNames) do
+                        pcall(function()
+                            local conns = getconnections(child[evtName])
+                            if conns and #conns > 0 then
+                                connectionDump[child:GetFullName() .. "." .. evtName] = {
+                                    EventName = evtName,
+                                    ConnectionCount = #conns,
+                                    Connections = {}
+                                }
+                                for idx, conn in ipairs(conns) do
+                                    connectionDump[child:GetFullName() .. "." .. evtName].Connections[idx] = {
+                                        IsConnected = conn.IsConnected,
+                                        IsEnabled = conn.IsEnabled,
+                                        FunctionType = type(conn.Function)
+                                    }
+                                end
+                            end
+                        end)
+                    end
+                end
+            end
+            scanConnections(child)
+        end
+    end
+    scanConnections(game)
+end)
+
+pcall(function()
+    writefile(workspacePath .. "connections/connections_" .. timestamp .. ".json", httpService:JSONEncode(connectionDump))
+end)
+
+local animationData = {}
+pcall(function()
+    local function scanForAnimators(parent)
+        for _, child in ipairs(parent:GetChildren()) do
+            if child:IsA("Animator") then
+                local tracks = {}
+                for _, track in ipairs(child:GetPlayingAnimationTracks()) do
+                    table.insert(tracks, {
+                        Name = track.Name,
+                        IsPlaying = track.IsPlaying,
+                        Speed = track.Speed,
+                        TimePosition = track.TimePosition,
+                        Length = track.Length,
+                        AnimationId = track.Animation and track.Animation.AnimationId or nil
+                    })
+                end
+                if #tracks > 0 then
+                    animationData[child:GetFullName()] = tracks
+                end
+            end
+            scanForAnimators(child)
+        end
+    end
+    scanForAnimators(game)
+end)
+
+pcall(function()
+    writefile(workspacePath .. "animations/animations_" .. timestamp .. ".json", httpService:JSONEncode(animationData))
+end)
+
+local datastoreCache = {}
+pcall(function()
+    local dsService = game:GetService("DataStoreService")
+    for _, store in ipairs(dsService:GetDataStores()) do
+        local storeName = store.Name
+        datastoreCache[storeName] = {}
+        if getdatastorecache then
+            datastoreCache[storeName] = getdatastorecache(storeName)
+        end
+    end
+end)
+
+pcall(function()
+    writefile(workspacePath .. "datastores/datastores_" .. timestamp .. ".json", httpService:JSONEncode(datastoreCache))
+end)
+
+local cloned = {}
+local visited = {}
+local bytecodeMap = {}
+
+local function cloneInstance(instance, parent)
+    if visited[instance] then return cloned[instance] end
+    local newInstance = Instance.new(instance.ClassName)
+    visited[instance] = true
+    cloned[instance] = newInstance
+    
+    local success, props = pcall(instance.GetProperties, instance)
+    if success and props then
+        for _, prop in ipairs(props) do
+            pcall(function()
+                local value = instance[prop]
+                if typeof(value) == "Instance" then
+                    value = cloneInstance(value, newInstance)
+                end
+                newInstance[prop] = value
+            end)
+        end
+    end
+    
+    local customProps = {"CFrame", "Size", "Position", "Orientation", "Color", "Material", 
+                        "Transparency", "Reflectance", "BrickColor", "Shape", "Locked", 
+                        "Anchored", "CanCollide", "Velocity", "RotVelocity", "AssemblyLinearVelocity",
+                        "AssemblyAngularVelocity", "Mass", "Density", "Friction", "Elasticity",
+                        "FrictionWeight", "ElasticityWeight", "NetworkOwnership"}
+    if instance:IsA("BasePart") then
+        for _, p in ipairs(customProps) do
+            pcall(function() newInstance[p] = instance[p] end)
+        end
+    end
+    
+    if instance:IsA("MeshPart") then
+        pcall(function() newInstance.MeshId = instance.MeshId end)
+        pcall(function() newInstance.TextureId = instance.TextureId end)
+        pcall(function() newInstance.RenderFidelity = instance.RenderFidelity end)
+        pcall(function() newInstance.UVTransform = instance.UVTransform end)
+        pcall(function() newInstance.VertexColor = instance.VertexColor end)
+    end
+    if instance:IsA("UnionOperation") then
+        pcall(function() newInstance.UnionData = instance.UnionData end)
+    end
+    if instance:IsA("CylinderMesh") or instance:IsA("BlockMesh") or instance:IsA("SpecialMesh") then
+        pcall(function() newInstance.Scale = instance.Scale end)
+        pcall(function() newInstance.Offset = instance.Offset end)
+        pcall(function() newInstance.MeshType = instance.MeshType end)
+        if instance:IsA("SpecialMesh") then
+            pcall(function() newInstance.MeshId = instance.MeshId end)
+            pcall(function() newInstance.TextureId = instance.TextureId end)
+        end
+    end
+    
+    if instance:IsA("Sound") then
+        local soundProps = {"SoundId", "Volume", "Pitch", "PlaybackSpeed", "Looped", 
+                            "TimePosition", "TimeLength", "RollOffMaxDistance", "RollOffMinDistance",
+                            "DistanceMax", "DistanceMin", "IsLoaded", "Playing", "MaxDistance"}
+        for _, p in ipairs(soundProps) do
+            pcall(function() newInstance[p] = instance[p] end)
+        end
+    end
+    if instance:IsA("SoundGroup") then
+        pcall(function() newInstance.Volume = instance.Volume end)
+    end
+    
+    if instance:IsA("Script") or instance:IsA("LocalScript") or instance:IsA("ModuleScript") then
+        pcall(function() newInstance.Source = instance.Source end)
+        if instance:IsA("Script") then
+            pcall(function() newInstance.RunContext = instance.RunContext end)
+        end
+        if getscriptbytecode then
+            pcall(function()
+                local bytecode = getscriptbytecode(instance)
+                if bytecode then
+                    bytecodeMap[instance:GetFullName()] = bytecode
+                end
+            end)
+        end
+        pcall(function()
+            local scriptPath = workspacePath .. "scripts/" .. instance.Name:gsub("[^%w_%-]", "_") .. "_" .. timestamp .. ".lua"
+            writefile(scriptPath, instance.Source)
+        end)
+    end
+    
+    for _, attrName in ipairs(instance:GetAttributes()) do
+        pcall(function() newInstance:SetAttribute(attrName, instance:GetAttribute(attrName)) end)
+    end
+    
+    for _, tag in ipairs(instance:GetTags()) do
+        pcall(function() newInstance:AddTag(tag) end)
+    end
+    
+    if instance:IsA("BasePart") then
+        pcall(function() newInstance.BottomSurface = instance.BottomSurface end)
+        pcall(function() newInstance.TopSurface = instance.TopSurface end)
+        pcall(function() newInstance.FrontSurface = instance.FrontSurface end)
+        pcall(function() newInstance.BackSurface = instance.BackSurface end)
+        pcall(function() newInstance.LeftSurface = instance.LeftSurface end)
+        pcall(function() newInstance.RightSurface = instance.RightSurface end)
+        pcall(function() newInstance.BottomSurfaceInput = instance.BottomSurfaceInput end)
+        pcall(function() newInstance.TopSurfaceInput = instance.TopSurfaceInput end)
+        pcall(function() newInstance.FrontSurfaceInput = instance.FrontSurfaceInput end)
+        pcall(function() newInstance.BackSurfaceInput = instance.BackSurfaceInput end)
+        pcall(function() newInstance.LeftSurfaceInput = instance.LeftSurfaceInput end)
+        pcall(function() newInstance.RightSurfaceInput = instance.RightSurfaceInput end)
+    end
+    
+    if instance:IsA("Tool") then
+        pcall(function() newInstance.RequiresHandle = instance.RequiresHandle end)
+        pcall(function() newInstance.Grip = instance.Grip end)
+        pcall(function() newInstance.GripPos = instance.GripPos end)
+        pcall(function() newInstance.GripUp = instance.GripUp end)
+        pcall(function() newInstance.GripForward = instance.GripForward end)
+    end
+    
+    for _, child in ipairs(instance:GetChildren()) do
+        cloneInstance(child, newInstance)
+    end
+    
+    newInstance.Parent = parent
+    return newInstance
+end
+
+pcall(function()
+    cloneInstance(game, nil)
+end)
+
+pcall(function()
+    for original, copy in pairs(cloned) do
+        if copy:IsA("Script") or copy:IsA("LocalScript") or copy:IsA("ModuleScript") then
+            pcall(function()
+                local scriptPath = workspacePath .. "scripts/" .. original.Name:gsub("[^%w_%-]", "_") .. "_" .. timestamp .. ".lua"
+                writefile(scriptPath, original.Source)
+            end)
+        end
+    end
+end)
+
+pcall(function()
+    if bytecodeMap and next(bytecodeMap) then
+        local bytecodeJson = httpService:JSONEncode(bytecodeMap)
+        writefile(workspacePath .. "bytecode/bytecode_" .. timestamp .. ".json", bytecodeJson)
+    end
+end)
+
+local serializedData = {}
+for original, copy in pairs(cloned) do
+    local fullName = pcall(original.GetFullName, original) and original:GetFullName() or tostring(original)
+    local props = {}
+    local success, propList = pcall(original.GetProperties, original)
+    if success and propList then
+        for _, prop in ipairs(propList) do
+            pcall(function()
+                local value = original[prop]
+                if typeof(value) == "Instance" then
+                    props[prop] = value:GetFullName()
+                else
+                    props[prop] = value
+                end
+            end)
+        end
+    end
+    serializedData[fullName] = {
+        ClassName = copy.ClassName,
+        Properties = props,
+        Children = {}
+    }
+    pcall(function()
+        for _, child in ipairs(original:GetChildren()) do
+            table.insert(serializedData[fullName].Children, child:GetFullName())
+        end
+    end)
+end
+
+pcall(function()
+    local jsonFinal = httpService:JSONEncode(serializedData)
+    writefile(workspacePath .. "full_clone_" .. timestamp .. ".json", jsonFinal)
+end)
+
+pcall(function()
+    local summary = {
+        Timestamp = timestamp,
+        InstanceCount = 0,
+        ScriptCount = 0,
+        ModuleCount = 0,
+        RemoteCount = 0,
+        PartCount = 0,
+        MeshCount = 0,
+        SoundCount = 0,
+        AnimationCount = 0,
+        GlobalCount = 0,
+        UpvalueCount = 0,
+        MetatableCount = 0,
+        ConnectionCount = 0,
+        DataStoreCount = 0
+    }
+    
+    for _, copy in pairs(cloned) do
+        summary.InstanceCount = summary.InstanceCount + 1
+        if copy:IsA("Script") or copy:IsA("LocalScript") then
+            summary.ScriptCount = summary.ScriptCount + 1
+        end
+        if copy:IsA("ModuleScript") then
+            summary.ModuleCount = summary.ModuleCount + 1
+        end
+        if copy:IsA("RemoteEvent") or copy:IsA("RemoteFunction") then
+            summary.RemoteCount = summary.RemoteCount + 1
+        end
+        if copy:IsA("BasePart") then
+            summary.PartCount = summary.PartCount + 1
+        end
+        if copy:IsA("MeshPart") or copy:IsA("SpecialMesh") then
+            summary.MeshCount = summary.MeshCount + 1
+        end
+        if copy:IsA("Sound") then
+            summary.SoundCount = summary.SoundCount + 1
+        end
+    end
+    
+    for _ in pairs(animationData) do summary.AnimationCount = summary.AnimationCount + 1 end
+    for _ in pairs(globalDump) do summary.GlobalCount = summary.GlobalCount + 1 end
+    for _ in pairs(upvalueDump) do summary.UpvalueCount = summary.UpvalueCount + 1 end
+    for _ in pairs(metatableDump) do summary.MetatableCount = summary.MetatableCount + 1 end
+    for _ in pairs(connectionDump) do summary.ConnectionCount = summary.ConnectionCount + 1 end
+    for _ in pairs(datastoreCache) do summary.DataStoreCount = summary.DataStoreCount + 1 end
+    
+    local summaryJson = httpService:JSONEncode(summary)
+    writefile(workspacePath .. "summary_" .. timestamp .. ".json", summaryJson)
+end)
+
+print("TOTAL DUPLICATION COMPLETE")
+print("Output directory: " .. workspacePath)
+print("Files generated: globals, upvalues, metatables, connections, animations, datastores, scripts, bytecode, full_clone, summary")
