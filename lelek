@@ -1,0 +1,667 @@
+--[[
+    Complete Roblox exploit script for SYUDAD RP / Filipino city roleplay games.
+    Uses Fluent Pro UI with "Blood" theme.
+    Tabs: Main, Syudad, Copy, Commands, Combat, Utility, Auto Linis.
+    Features: Aimbot (head lock), Tracers (Adonis-style "track all"), Big Head, etc.
+--]]
+
+local Fluent = loadstring(game:HttpGet("https://github.com/StyearX/Fluent-Modded/releases/download/Fluent/FluentPro"))()
+local Window = Fluent:CreateWindow({
+    Title = "4GODS ON TOP",
+    SubTitle = "SYUDAD RP / Geng Geng",
+    TabWidth = 160,
+    Size = UDim2.fromOffset(600, 480),
+    Acrylic = false,
+    Theme = "Blood",
+    MinimizeKey = Enum.KeyCode.LeftControl
+})
+
+-- ========== GLOBAL VARIABLES ==========
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TeleportService = game:GetService("TeleportService")
+local VirtualUser = game:GetService("VirtualUser")
+local LocalPlayer = Players.LocalPlayer
+local Camera = workspace.CurrentCamera
+local TracerObjects = {}
+local AimbotActive = false
+local TracersActive = false
+
+-- ========== MAIN TAB ==========
+local MainTab = Window:AddTab({ Title = "Main", Icon = "home" })
+
+local TeleportSection = MainTab:AddSection("Teleport")
+TeleportSection:AddButton({
+    Title = "Teleport to Waypoint",
+    Callback = function()
+        local wp = LocalPlayer.Character:FindFirstChild("Waypoint")
+        if wp then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = wp.CFrame
+        end
+    end
+})
+
+TeleportSection:AddDropdown({
+    Title = "Teleport to Player",
+    Values = function()
+        local list = {}
+        for _, v in pairs(Players:GetPlayers()) do
+            if v ~= LocalPlayer then table.insert(list, v.Name) end
+        end
+        return list
+    end,
+    Callback = function(value)
+        local target = Players:FindFirstChild(value)
+        if target and target.Character and target.Character:FindFirstChild("HumanoidRootPart") then
+            LocalPlayer.Character.HumanoidRootPart.CFrame = target.Character.HumanoidRootPart.CFrame * CFrame.new(0, 3, 0)
+        end
+    end
+})
+
+local MovementSection = MainTab:AddSection("Movement")
+local FlyToggle = MovementSection:AddToggle({
+    Title = "Fly",
+    Default = false,
+    Callback = function(state)
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hrp = char:FindFirstChild("HumanoidRootPart")
+        local hum = char:FindFirstChild("Humanoid")
+        if not hrp or not hum then return end
+        if state then
+            hum.PlatformStand = true
+            RunService.Stepped:Connect(function()
+                if not FlyToggle.Value then return end
+                local dir = Vector3.new(0,0,0)
+                if UserInputService:IsKeyDown(Enum.KeyCode.W) then dir = dir + hrp.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.S) then dir = dir - hrp.CFrame.LookVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.A) then dir = dir - hrp.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.D) then dir = dir + hrp.CFrame.RightVector end
+                if UserInputService:IsKeyDown(Enum.KeyCode.Space) then dir = dir + Vector3.new(0,1,0) end
+                if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then dir = dir - Vector3.new(0,1,0) end
+                hrp.Velocity = dir.Magnitude > 0 and dir.Unit * 50 or Vector3.new(0,0,0)
+            end)
+        else
+            hum.PlatformStand = false
+            hrp.Velocity = Vector3.new(0,0,0)
+        end
+    end
+})
+
+local NoclipToggle = MovementSection:AddToggle({
+    Title = "Noclip",
+    Default = false,
+    Callback = function(state)
+        local char = LocalPlayer.Character
+        if not char then return end
+        for _, part in pairs(char:GetDescendants()) do
+            if part:IsA("BasePart") then part.CanCollide = not state end
+        end
+        RunService.Stepped:Connect(function()
+            if not NoclipToggle.Value then return end
+            for _, part in pairs(char:GetDescendants()) do
+                if part:IsA("BasePart") then part.CanCollide = false end
+            end
+        end)
+    end
+})
+
+MovementSection:AddSlider({
+    Title = "Walk Speed",
+    Values = { Min = 16, Max = 120, Default = 16, Rounding = 1 },
+    Callback = function(v)
+        local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then hum.WalkSpeed = v end
+    end
+})
+
+MovementSection:AddSlider({
+    Title = "Jump Power",
+    Values = { Min = 50, Max = 250, Default = 50, Rounding = 1 },
+    Callback = function(v)
+        local hum = LocalPlayer.Character:FindFirstChild("Humanoid")
+        if hum then hum.JumpPower = v end
+    end
+})
+
+-- ========== SYUDAD TAB ==========
+local SyudadTab = Window:AddTab({ Title = "Syudad", Icon = "city" })
+
+local WeaponSection = SyudadTab:AddSection("Weapons")
+WeaponSection:AddButton({
+    Title = "Give Silenced Pistol",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local pistol = Instance.new("Tool")
+        pistol.Name = "SilencedPistol"
+        pistol.RequiresHandle = true
+        local handle = Instance.new("Part")
+        handle.Size = Vector3.new(1, 0.5, 0.2)
+        handle.Shape = Enum.PartType.Block
+        handle.Color = Color3.fromRGB(30, 30, 30)
+        handle.Material = Enum.Material.SmoothPlastic
+        handle.CanCollide = false
+        handle.Anchored = false
+        handle.Parent = pistol
+        local weld = Instance.new("Weld")
+        weld.Part0 = handle
+        weld.Part1 = char:FindFirstChild("RightHand") or char:FindFirstChild("HumanoidRootPart")
+        weld.C0 = CFrame.new(0, 0, -0.5)
+        weld.Parent = handle
+        pistol.Parent = LocalPlayer.Backpack
+        pistol.Parent = LocalPlayer.Character
+    end
+})
+
+WeaponSection:AddButton({
+    Title = "Give Money (₱10,000)",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local cash = char:FindFirstChild("Cash") or char:FindFirstChild("Money") or LocalPlayer:FindFirstChild("Cash")
+        if cash then
+            if cash:IsA("NumberValue") or cash:IsA("IntValue") then
+                cash.Value = cash.Value + 10000
+            elseif cash:IsA("StringValue") then
+                cash.Value = tostring(tonumber(cash.Value) + 10000)
+            end
+        else
+            local newCash = Instance.new("IntValue")
+            newCash.Name = "Cash"
+            newCash.Value = 10000
+            newCash.Parent = char
+        end
+    end
+})
+
+WeaponSection:AddButton({
+    Title = "Give All Weapons (Common RP)",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local weapons = {"Bat", "Knife", "Glock"}
+        for _, w in pairs(weapons) do
+            local tool = Instance.new("Tool")
+            tool.Name = w
+            tool.RequiresHandle = true
+            local handle = Instance.new("Part")
+            handle.Size = Vector3.new(0.5, 0.5, 0.5)
+            handle.Color = Color3.fromRGB(100, 100, 100)
+            handle.Material = Enum.Material.SmoothPlastic
+            handle.CanCollide = false
+            handle.Anchored = false
+            handle.Parent = tool
+            local weld = Instance.new("Weld")
+            weld.Part0 = handle
+            weld.Part1 = char:FindFirstChild("RightHand") or char:FindFirstChild("HumanoidRootPart")
+            weld.C0 = CFrame.new(0, 0, -0.3)
+            weld.Parent = handle
+            tool.Parent = LocalPlayer.Backpack
+        end
+    end
+})
+
+SyudadTab:AddButton({
+    Title = "Give Max Health + Shield",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then hum.Health = hum.MaxHealth end
+        local shield = char:FindFirstChild("Shield") or char:FindFirstChild("Armor")
+        if shield and (shield:IsA("NumberValue") or shield:IsA("IntValue")) then
+            shield.Value = 100
+        end
+    end
+})
+
+-- ========== BIG HEAD ==========
+SyudadTab:AddButton({
+    Title = "Big Head (All Players)",
+    Callback = function()
+        for _, plr in pairs(Players:GetPlayers()) do
+            local char = plr.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    head.Size = Vector3.new(3, 3, 3)
+                    head.MeshScale = Vector3.new(3, 3, 3)
+                    local mesh = head:FindFirstChild("SpecialMesh") or head:FindFirstChild("BlockMesh")
+                    if mesh then
+                        mesh.Scale = Vector3.new(3, 3, 3)
+                    end
+                end
+            end
+        end
+    end
+})
+
+SyudadTab:AddButton({
+    Title = "Reset Head Size (All Players)",
+    Callback = function()
+        for _, plr in pairs(Players:GetPlayers()) do
+            local char = plr.Character
+            if char then
+                local head = char:FindFirstChild("Head")
+                if head then
+                    head.Size = Vector3.new(1, 1, 1)
+                    head.MeshScale = Vector3.new(1, 1, 1)
+                    local mesh = head:FindFirstChild("SpecialMesh") or head:FindFirstChild("BlockMesh")
+                    if mesh then
+                        mesh.Scale = Vector3.new(1, 1, 1)
+                    end
+                end
+            end
+        end
+    end
+})
+
+-- ========== COPY TAB ==========
+local CopyTab = Window:AddTab({ Title = "Copy", Icon = "copy" })
+
+CopyTab:AddButton({
+    Title = "ACTIVATE FULL CLONE",
+    Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/haroldvincemarcelo564-arch/leakthissheett/refs/heads/main/fullclone'))()
+    end
+})
+
+CopyTab:AddButton({
+    Title = "Copy Character (Local)",
+    Callback = function()
+        local char = LocalPlayer.Character
+        if not char then return end
+        local copy = char:Clone()
+        copy.Parent = workspace
+        copy:SetPrimaryPartCFrame(char.HumanoidRootPart.CFrame + Vector3.new(5, 0, 0))
+    end
+})
+
+CopyTab:AddButton({
+    Title = "Copy All Tools",
+    Callback = function()
+        for _, tool in pairs(LocalPlayer.Backpack:GetChildren()) do
+            if tool:IsA("Tool") then
+                local newTool = tool:Clone()
+                newTool.Parent = LocalPlayer.Backpack
+            end
+        end
+    end
+})
+
+-- ========== COMMANDS TAB ==========
+local CommandsTab = Window:AddTab({ Title = "Commands", Icon = "terminal" })
+
+CommandsTab:AddButton({
+    Title = "Infinite Yield (Command Console)",
+    Callback = function()
+        loadstring(game:HttpGet('https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source'))()
+    end
+})
+
+CommandsTab:AddButton({
+    Title = "Dex Explorer (View/Edit Objects)",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/Babyhamsta/RBLX_Scripts/main/Universal/DexV2.lua"))()
+    end
+})
+
+CommandsTab:AddButton({
+    Title = "CMD-X (Advanced Console)",
+    Callback = function()
+        loadstring(game:HttpGet("https://raw.githubusercontent.com/CMD-X/CMD-X/master/Source"))()
+    end
+})
+
+CommandsTab:AddButton({
+    Title = "Remote Spy (View Remotes)",
+    Callback = function()
+        loadstring(game:HttpGet("https://pastebin.com/raw/0sZk6BxM"))()
+    end
+})
+
+-- ========== COMBAT TAB ==========
+local CombatTab = Window:AddTab({ Title = "Combat", Icon = "crosshair" })
+
+-- AIMBOT - LOCKS TO HEAD
+local AimbotToggle = CombatTab:AddToggle({
+    Title = "Aimbot (Head Lock)",
+    Description = "Locks camera to nearest player's head",
+    Default = false,
+    Callback = function(state)
+        AimbotActive = state
+        if state then
+            RunService.RenderStepped:Connect(function()
+                if not AimbotActive then return end
+                local char = LocalPlayer.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
+                local nearest, dist = nil, math.huge
+                for _, v in pairs(Players:GetPlayers()) do
+                    if v ~= LocalPlayer and v.Character then
+                        local head = v.Character:FindFirstChild("Head")
+                        if head then
+                            local d = (head.Position - Camera.CFrame.Position).Magnitude
+                            if d < dist then
+                                dist = d
+                                nearest = head
+                            end
+                        end
+                    end
+                end
+                if nearest then
+                    Camera.CFrame = CFrame.new(Camera.CFrame.Position, nearest.Position)
+                end
+            end)
+        end
+    end
+})
+
+-- TRACERS - ADONIS "TRACK ALL" STYLE
+local function createTracer(targetPart)
+    local tracer = Instance.new("Part")
+    tracer.Name = "Tracer"
+    tracer.Size = Vector3.new(0.1, 0.1, 0.1)
+    tracer.Anchored = true
+    tracer.CanCollide = false
+    tracer.Material = Enum.Material.Neon
+    tracer.BrickColor = BrickColor.new("Bright red")
+    tracer.Transparency = 0.3
+    tracer.Parent = workspace
+
+    local attachment = Instance.new("Attachment")
+    attachment.Parent = tracer
+
+    local trail = Instance.new("Trail")
+    trail.Parent = tracer
+    trail.Attachment0 = attachment
+    trail.Color = ColorSequence.new(Color3.fromRGB(255, 0, 0))
+    trail.Lifetime = 0.5
+    trail.MinLength = 0.5
+    trail.MaxLength = 10
+    trail.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0),
+        NumberSequenceKeypoint.new(1, 1)
+    })
+    trail.WidthScale = NumberSequence.new(1)
+
+    -- Update tracer position every frame to follow target
+    local connection
+    connection = RunService.RenderStepped:Connect(function()
+        if not TracersActive or not targetPart or not targetPart.Parent then
+            tracer:Destroy()
+            connection:Disconnect()
+            return
+        end
+        tracer.CFrame = targetPart.CFrame
+    end)
+
+    return tracer
+end
+
+local TracersToggle = CombatTab:AddToggle({
+    Title = "Tracers (Track All)",
+    Description = "Adonis-style tracers on all players",
+    Default = false,
+    Callback = function(state)
+        TracersActive = state
+        if state then
+            -- Clear old tracers
+            for _, obj in pairs(TracerObjects) do
+                pcall(function() obj:Destroy() end)
+            end
+            TracerObjects = {}
+
+            -- Create tracer for each player
+            for _, v in pairs(Players:GetPlayers()) do
+                if v ~= LocalPlayer and v.Character then
+                    local head = v.Character:FindFirstChild("Head")
+                    if head then
+                        local tracer = createTracer(head)
+                        table.insert(TracerObjects, tracer)
+                    end
+                end
+            end
+
+            -- Monitor new players
+            local playerAddedConn
+            playerAddedConn = Players.PlayerAdded:Connect(function(newPlayer)
+                if TracersActive then
+                    newPlayer.CharacterAdded:Connect(function(char)
+                        wait(0.5)
+                        if TracersActive and newPlayer ~= LocalPlayer then
+                            local head = char:FindFirstChild("Head")
+                            if head then
+                                local tracer = createTracer(head)
+                                table.insert(TracerObjects, tracer)
+                            end
+                        end
+                    end)
+                end
+            end)
+
+            -- Cleanup when toggled off
+            TracersToggle._cleanup = function()
+                playerAddedConn:Disconnect()
+            end
+        else
+            for _, obj in pairs(TracerObjects) do
+                pcall(function() obj:Destroy() end)
+            end
+            TracerObjects = {}
+            if TracersToggle._cleanup then
+                TracersToggle._cleanup()
+                TracersToggle._cleanup = nil
+            end
+        end
+    end
+})
+
+-- ESP (kept from before)
+local ESPToggle = CombatTab:AddToggle({
+    Title = "ESP (Boxes + Names)",
+    Default = false,
+    Callback = function(state)
+        local espObjects = {}
+        if state then
+            RunService.RenderStepped:Connect(function()
+                if not ESPToggle.Value then
+                    for _, obj in pairs(espObjects) do obj:Remove() end
+                    espObjects = {}
+                    return
+                end
+                for _, obj in pairs(espObjects) do obj:Remove() end
+                espObjects = {}
+                for _, v in pairs(Players:GetPlayers()) do
+                    if v ~= LocalPlayer and v.Character and v.Character:FindFirstChild("HumanoidRootPart") then
+                        local hrp = v.Character.HumanoidRootPart
+                        local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+                        if onScreen then
+                            local box = Instance.new("Frame")
+                            box.Size = UDim2.new(0, 60, 0, 120)
+                            box.Position = UDim2.new(0, pos.X - 30, 0, pos.Y - 60)
+                            box.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+                            box.BackgroundTransparency = 0.5
+                            box.BorderSizePixel = 0
+                            box.Parent = game:GetService("CoreGui")
+                            local nameLabel = Instance.new("TextLabel")
+                            nameLabel.Size = UDim2.new(1, 0, 0, 20)
+                            nameLabel.Position = UDim2.new(0, 0, 1, 0)
+                            nameLabel.Text = v.Name
+                            nameLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+                            nameLabel.BackgroundTransparency = 1
+                            nameLabel.TextScaled = true
+                            nameLabel.Parent = box
+                            table.insert(espObjects, box)
+                        end
+                    end
+                end
+            end)
+        else
+            for _, obj in pairs(espObjects) do obj:Remove() end
+            espObjects = {}
+        end
+    end
+})
+
+-- ========== AUTO LINIS TAB ==========
+local LinisTab = Window:AddTab({ Title = "Auto Linis", Icon = "broom" })
+
+local AutoLinisRunning = false
+local LinisCoroutine = nil
+
+local function findNearestTrash()
+    local char = LocalPlayer.Character
+    if not char or not char:FindFirstChild("HumanoidRootPart") then return nil end
+    local hrp = char.HumanoidRootPart
+    local nearest, dist = nil, math.huge
+    for _, obj in pairs(workspace:GetDescendants()) do
+        if obj:IsA("Model") or obj:IsA("Part") then
+            local name = string.lower(obj.Name)
+            if name:find("trash") or name:find("garbage") or name:find("basura") or name:find("waste") or name:find("kalat") or name:find("bote") or name:find("plastic") or name:find("can") then
+                local root = obj:FindFirstChild("HumanoidRootPart") or obj:FindFirstChild("RootPart") or obj:FindFirstChild("PrimaryPart") or (obj:IsA("Part") and obj)
+                if root and root:IsA("BasePart") then
+                    local d = (root.Position - hrp.Position).Magnitude
+                    if d < dist and d < 100 then
+                        dist = d
+                        nearest = {object = obj, rootPart = root}
+                    end
+                end
+            end
+        end
+    end
+    return nearest
+end
+
+local function doPickupPrompt(trashPart)
+    local humanoid = LocalPlayer.Character:FindFirstChild("Humanoid")
+    if humanoid then
+        local prompts = trashPart:FindFirstChild("ProximityPrompt") or trashPart:FindFirstChild("ClickDetector")
+        if prompts then
+            if prompts:IsA("ProximityPrompt") then
+                prompts:Hold()
+                wait(0.3)
+                prompts:Release()
+            elseif prompts:IsA("ClickDetector") then
+                prompts:Click()
+            end
+        end
+        VirtualUser:CaptureController()
+        VirtualUser:ClickButton2(Vector2.new())
+    end
+end
+
+LinisTab:AddToggle({
+    Title = "Auto Linis (Trash Pickup)",
+    Description = "Walks to nearest trash, picks up, jumps, repeats",
+    Default = false,
+    Callback = function(state)
+        if state then
+            if AutoLinisRunning then return end
+            AutoLinisRunning = true
+            LinisCoroutine = coroutine.create(function()
+                while AutoLinisRunning do
+                    local char = LocalPlayer.Character
+                    if not char then wait(1) continue end
+                    local hrp = char:FindFirstChild("HumanoidRootPart")
+                    local hum = char:FindFirstChild("Humanoid")
+                    if not hrp or not hum then wait(1) continue end
+
+                    local trash = findNearestTrash()
+                    if trash then
+                        local targetPos = trash.rootPart.Position
+                        hrp.CFrame = CFrame.new(hrp.Position, targetPos)
+                        hrp.CFrame = hrp.CFrame + (targetPos - hrp.Position).Unit * 2
+                        wait(0.1)
+                        if (hrp.Position - targetPos).Magnitude < 5 then
+                            doPickupPrompt(trash.object)
+                            wait(0.2)
+                            hum.Jump = true
+                            wait(0.3)
+                            hum.Jump = false
+                            wait(0.2)
+                        end
+                    else
+                        local randomDir = Vector3.new(math.random(-20,20), 0, math.random(-20,20))
+                        hrp.CFrame = hrp.CFrame + randomDir
+                        wait(0.5)
+                    end
+                    wait(0.1)
+                end
+            end)
+            coroutine.resume(LinisCoroutine)
+        else
+            AutoLinisRunning = false
+            LinisCoroutine = nil
+        end
+    end
+})
+
+LinisTab:AddButton({
+    Title = "Find Trash (Highlight)",
+    Callback = function()
+        local trash = findNearestTrash()
+        if trash and trash.rootPart then
+            local box = Instance.new("BoxHandleAdornment")
+            box.Size = Vector3.new(3,3,3)
+            box.Color3 = Color3.fromRGB(255,0,0)
+            box.Transparency = 0.5
+            box.AlwaysOnTop = true
+            box.ZIndex = 10
+            box.Adornee = trash.rootPart
+            box.Parent = game:GetService("CoreGui")
+            wait(2)
+            box:Destroy()
+        end
+    end
+})
+
+-- ========== UTILITY TAB ==========
+local UtilTab = Window:AddTab({ Title = "Utility", Icon = "settings" })
+
+local GodModeToggle = UtilTab:AddToggle({
+    Title = "God Mode",
+    Default = false,
+    Callback = function(state)
+        local char = LocalPlayer.Character
+        if not char then return end
+        local hum = char:FindFirstChild("Humanoid")
+        if hum then
+            hum.MaxHealth = state and math.huge or 100
+            hum.Health = state and math.huge or 100
+        end
+        RunService.Stepped:Connect(function()
+            if GodModeToggle.Value and hum then hum.Health = math.huge end
+        end)
+    end
+})
+
+local AntiAFK = UtilTab:AddToggle({
+    Title = "Anti-AFK",
+    Default = false,
+    Callback = function(state)
+        if state then
+            LocalPlayer.Idled:Connect(function()
+                if AntiAFK.Value then
+                    VirtualUser:CaptureController()
+                    VirtualUser:ClickButton2(Vector2.new())
+                end
+            end)
+        end
+    end
+})
+
+UtilTab:AddButton({
+    Title = "Rejoin Server",
+    Callback = function()
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end
+})
+
+-- ========== NOTIFY ==========
+Fluent:Notify({
+    Title = "4GODS ON TOP",
+    Content = "BOMBA NA GARRR",
+    Duration = 5
+})
